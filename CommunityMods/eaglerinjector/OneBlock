@@ -1,0 +1,125 @@
+(()=>{
+    const oneblockTexture = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAyUlEQVR42mNggAJmYGBgaGBgqGZgYGCA+P8/x4mJiTGACzhgZGYVSHnYPjAwPDh+8ZcBYmBgYGBpY2Nj8x8GCQAZIDY2Nj+vEJJXgJiYmD8H5wP+/D1QZjMiPDz8yOYDJgZGRn45IHw5b//fwX/fxMyYmBg8NPHJCIkx0ADc2BiYGDQwd+B43D/L58/h38+Z+k5GRk8N/fP4/+/fsfBFdgtWJiQn8MDAwI2AUFAWC7O+o7AL4Kjc/xlyPqAAAAAElFTkSuQmCC";
+
+    ModAPI.meta.title("OneBlock");
+    ModAPI.meta.version("v1.0");
+    ModAPI.meta.description("Adds the regenerating OneBlock.");
+    ModAPI.meta.icon(oneblockTexture);
+
+    function OneBlockMod() {
+        function fixupBlockIds() {
+            const blockRegistry = ModAPI.util.wrap(ModAPI.reflect.getClassById("net.minecraft.block.Block").staticVariables.blockRegistry).getCorrective();
+            const BLOCK_STATE_IDS = ModAPI.util.wrap(ModAPI.reflect.getClassById("net.minecraft.block.Block").staticVariables.BLOCK_STATE_IDS).getCorrective();
+            blockRegistry.registryObjects.hashTableKToV.forEach(entry => {
+                if (entry) {
+                    const block = entry.value;
+                    const validStates = block.getBlockState().getValidStates();
+                    const stateArray = validStates.array || [validStates.element];
+                    stateArray.forEach(iblockstate => {
+                        const i = blockRegistry.getIDForObject(block.getRef()) << 4 | block.getMetaFromState(iblockstate.getRef());
+                        BLOCK_STATE_IDS.put(iblockstate.getRef(), i);
+                    });
+                }
+            });
+        }
+
+        const itemClass = ModAPI.reflect.getClassById("net.minecraft.item.Item");
+        const blockClass = ModAPI.reflect.getClassById("net.minecraft.block.Block");
+        const iproperty = ModAPI.reflect.getClassById("net.minecraft.block.properties.IProperty").class;
+        const makeBlockState = ModAPI.reflect.getClassById("net.minecraft.block.state.BlockState").constructors.find(x => x.length === 2);
+        const blockSuper = ModAPI.reflect.getSuper(blockClass, (x) => x.length === 2);
+        const creativeBlockTab = ModAPI.reflect.getClassById("net.minecraft.creativetab.CreativeTabs").staticVariables.tabBlock;
+        const breakBlockMethod = blockClass.methods.breakBlock.method;
+        const rand = ModAPI.reflect.getClassById("java.util.Random").constructors.find(c=>c.length === 0)();
+
+        const oneBlockDropList = [
+            "stone", "dirt", "sand", "cobblestone", "planks", "log", "gold_ore", "iron_ore", "diamond_ore"
+        ];
+
+        const nmb_OneBlock = function nmb_OneBlock() {
+            blockSuper(this, ModAPI.materials.rock.getRef());
+            this.$defaultBlockState = this.$blockState.$getBaseState();
+            this.$setCreativeTab(creativeBlockTab);
+        }
+
+        ModAPI.reflect.prototypeStack(blockClass, nmb_OneBlock);
+
+        nmb_OneBlock.prototype.$isOpaqueCube = function () {
+            return 1;
+        }
+
+        nmb_OneBlock.prototype.$createBlockState = function () {
+            return makeBlockState(this, ModAPI.array.object(iproperty, 0));
+        }
+
+        nmb_OneBlock.prototype.$breakBlock = function ($world, $blockpos, $state) {
+            const world = ModAPI.util.wrap($world);
+            const pos = ModAPI.util.wrap($blockpos);
+            const x = pos.getX(), y = pos.getY(), z = pos.getZ();
+
+            // Reset the oneblock after a short delay
+            ModAPI.setTimeout(() => {
+                world.setBlock(x, y, z, this.$defaultBlockState.getRef(), 2);
+            }, 300);
+
+            // Drop a random block above
+            const randBlockName = oneBlockDropList[Math.floor(Math.random() * oneBlockDropList.length)];
+            const randBlock = ModAPI.blocks[randBlockName];
+            if (randBlock) {
+                world.setBlock(x, y + 1, z, randBlock.getDefaultState().getRef(), 2);
+            }
+
+            return breakBlockMethod(this, $world, $blockpos, $state);
+        }
+
+        function internal_reg() {
+            const block_oneblock = (new nmb_OneBlock()).$setHardness(0.5).$setUnlocalizedName(
+                ModAPI.util.str("oneblock")
+            );
+            blockClass.staticMethods.registerBlock0.method(
+                545,
+                ModAPI.util.str("oneblock"),
+                block_oneblock
+            );
+            itemClass.staticMethods.registerItemBlock0.method(block_oneblock);
+            fixupBlockIds();
+            ModAPI.blocks["oneblock"] = block_oneblock;
+
+            return block_oneblock;
+        }
+
+        if (ModAPI.materials) {
+            return internal_reg();
+        } else {
+            ModAPI.addEventListener("bootstrap", internal_reg);
+        }
+    }
+
+    ModAPI.dedicatedServer.appendCode(OneBlockMod);
+    const block_oneblock = OneBlockMod();
+
+    ModAPI.addEventListener("lib:asyncsink", async () => {
+        ModAPI.addEventListener("custom:asyncsink_reloaded", () => {
+            ModAPI.mc.renderItem.registerBlock(block_oneblock, ModAPI.util.str("oneblock"));
+        });
+
+        AsyncSink.L10N.set("tile.oneblock.name", "OneBlock");
+        AsyncSink.setFile("resourcepacks/AsyncSinkLib/assets/minecraft/models/block/oneblock.json", JSON.stringify({
+            parent: "block/cube_all",
+            textures: {
+                all: "blocks/oneblock"
+            }
+        }));
+        AsyncSink.setFile("resourcepacks/AsyncSinkLib/assets/minecraft/models/item/oneblock.json", JSON.stringify({
+            parent: "block/oneblock"
+        }));
+        AsyncSink.setFile("resourcepacks/AsyncSinkLib/assets/minecraft/blockstates/oneblock.json", JSON.stringify({
+            variants: {
+                normal: [{ model: "oneblock" }]
+            }
+        }));
+        AsyncSink.setFile("resourcepacks/AsyncSinkLib/assets/minecraft/textures/blocks/oneblock.png", await (await fetch(
+            oneblockTexture
+        )).arrayBuffer());
+    });
+})();

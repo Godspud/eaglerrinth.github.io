@@ -1,10 +1,17 @@
 (()=>{
-    const oneblockTexture = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAyUlEQVR42mNggAJmYGBgaGBgqGZgYGCA+P8/x4mJiTGACzhgZGYVSHnYPjAwPDh+8ZcBYmBgYGBpY2Nj8x8GCQAZIDY2Nj+vEJJXgJiYmD8H5wP+/D1QZjMiPDz8yOYDJgZGRn45IHw5b//fwX/fxMyYmBg8NPHJCIkx0ADc2BiYGDQwd+B43D/L58/h38+Z+k5GRk8N/fP4/+/fsfBFdgtWJiQn8MDAwI2AUFAWC7O+o7AL4Kjc/xlyPqAAAAAElFTkSuQmCC";
+    const blockVariants = ["stone", "dirt", "log", "planks", "cobblestone"];
+    const oneblockTextureMap = {
+        stone: "textures/blocks/stone.png",
+        dirt: "textures/blocks/dirt.png",
+        log: "textures/blocks/log_oak.png",
+        planks: "textures/blocks/planks_oak.png",
+        cobblestone: "textures/blocks/cobblestone.png"
+    };
 
     ModAPI.meta.title("OneBlock");
-    ModAPI.meta.version("v1.0");
-    ModAPI.meta.description("Adds the regenerating OneBlock.");
-    ModAPI.meta.icon(oneblockTexture);
+    ModAPI.meta.version("v1.1");
+    ModAPI.meta.description("OneBlock that mimics its next drop using variants.");
+    ModAPI.meta.credits("By ChatGPT");
 
     function OneBlockMod() {
         function fixupBlockIds() {
@@ -25,62 +32,70 @@
 
         const itemClass = ModAPI.reflect.getClassById("net.minecraft.item.Item");
         const blockClass = ModAPI.reflect.getClassById("net.minecraft.block.Block");
-        const iproperty = ModAPI.reflect.getClassById("net.minecraft.block.properties.IProperty").class;
+        const ipropertyEnum = ModAPI.reflect.getClassById("net.minecraft.block.properties.PropertyEnum").constructors[0];
         const makeBlockState = ModAPI.reflect.getClassById("net.minecraft.block.state.BlockState").constructors.find(x => x.length === 2);
         const blockSuper = ModAPI.reflect.getSuper(blockClass, (x) => x.length === 2);
         const creativeBlockTab = ModAPI.reflect.getClassById("net.minecraft.creativetab.CreativeTabs").staticVariables.tabBlock;
         const breakBlockMethod = blockClass.methods.breakBlock.method;
-        const rand = ModAPI.reflect.getClassById("java.util.Random").constructors.find(c=>c.length === 0)();
 
-        const oneBlockDropList = [
-            "stone", "dirt", "sand", "cobblestone", "planks", "log", "gold_ore", "iron_ore", "diamond_ore"
-        ];
+        const variantProperty = ipropertyEnum(ModAPI.util.str("variant"), ModAPI.util.strArray(blockVariants));
 
         const nmb_OneBlock = function nmb_OneBlock() {
             blockSuper(this, ModAPI.materials.rock.getRef());
-            this.$defaultBlockState = this.$blockState.$getBaseState();
             this.$setCreativeTab(creativeBlockTab);
-        }
+        };
 
         ModAPI.reflect.prototypeStack(blockClass, nmb_OneBlock);
 
-        nmb_OneBlock.prototype.$isOpaqueCube = function () {
-            return 1;
-        }
-
         nmb_OneBlock.prototype.$createBlockState = function () {
-            return makeBlockState(this, ModAPI.array.object(iproperty, 0));
-        }
+            return makeBlockState(this, ModAPI.array.object(ModAPI.reflect.getClassById("net.minecraft.block.properties.IProperty").class, 1, [variantProperty]));
+        };
+
+        nmb_OneBlock.prototype.$getMetaFromState = function ($state) {
+            const val = ModAPI.util.wrap($state).getValue(variantProperty).toString();
+            return blockVariants.indexOf(val);
+        };
+
+        nmb_OneBlock.prototype.$getStateFromMeta = function (meta) {
+            return this.$getDefaultState().withProperty(variantProperty, ModAPI.util.str(blockVariants[meta % blockVariants.length]));
+        };
+
+        nmb_OneBlock.prototype.$getActualState = function ($state, $world, $pos) {
+            return $state;
+        };
 
         nmb_OneBlock.prototype.$breakBlock = function ($world, $blockpos, $state) {
             const world = ModAPI.util.wrap($world);
             const pos = ModAPI.util.wrap($blockpos);
-            const x = pos.getX(), y = pos.getY(), z = pos.getZ();
+            const variant = blockVariants[Math.floor(Math.random() * blockVariants.length)];
 
-            // Reset the oneblock after a short delay
-            ModAPI.setTimeout(() => {
-                world.setBlock(x, y, z, this.$defaultBlockState.getRef(), 2);
-            }, 300);
-
-            // Drop a random block above
-            const randBlockName = oneBlockDropList[Math.floor(Math.random() * oneBlockDropList.length)];
-            const randBlock = ModAPI.blocks[randBlockName];
-            if (randBlock) {
-                world.setBlock(x, y + 1, z, randBlock.getDefaultState().getRef(), 2);
+            // Drop the actual block above
+            const dropBlock = ModAPI.blocks[variant];
+            if (dropBlock) {
+                world.setBlock(pos.getX(), pos.getY() + 1, pos.getZ(), dropBlock.getDefaultState().getRef(), 2);
             }
 
+            // Regenerate OneBlock with new variant
+            ModAPI.setTimeout(() => {
+                const newState = ModAPI.blocks["oneblock"].getDefaultState().withProperty(variantProperty, ModAPI.util.str(variant));
+                world.setBlock(pos.getX(), pos.getY(), pos.getZ(), newState.getRef(), 2);
+            }, 300);
+
             return breakBlockMethod(this, $world, $blockpos, $state);
-        }
+        };
 
         function internal_reg() {
-            const block_oneblock = (new nmb_OneBlock()).$setHardness(0.5).$setUnlocalizedName(
-                ModAPI.util.str("oneblock")
-            );
-            blockClass.staticMethods.registerBlock0.method(
-                545,
-                ModAPI.util.str("oneblock"),
-                block_oneblock
-            );
+            const block_oneblock = (new nmb_OneBlock())
+                .$setHardness(0.5)
+                .$setUnlocalizedName(ModAPI.util.str("oneblock"))
+                .$setDefaultState(
+                    (function () {
+                        const b = new nmb_OneBlock();
+                        return b.$getDefaultState().withProperty(variantProperty, ModAPI.util.str("stone"));
+                    })()
+                );
+
+            blockClass.staticMethods.registerBlock0.method(546, ModAPI.util.str("oneblock"), block_oneblock);
             itemClass.staticMethods.registerItemBlock0.method(block_oneblock);
             fixupBlockIds();
             ModAPI.blocks["oneblock"] = block_oneblock;
@@ -104,22 +119,25 @@
         });
 
         AsyncSink.L10N.set("tile.oneblock.name", "OneBlock");
-        AsyncSink.setFile("resourcepacks/AsyncSinkLib/assets/minecraft/models/block/oneblock.json", JSON.stringify({
-            parent: "block/cube_all",
-            textures: {
-                all: "blocks/oneblock"
-            }
-        }));
-        AsyncSink.setFile("resourcepacks/AsyncSinkLib/assets/minecraft/models/item/oneblock.json", JSON.stringify({
-            parent: "block/oneblock"
-        }));
+
+        // Blockstate definition with variants
         AsyncSink.setFile("resourcepacks/AsyncSinkLib/assets/minecraft/blockstates/oneblock.json", JSON.stringify({
-            variants: {
-                normal: [{ model: "oneblock" }]
-            }
+            variants: Object.fromEntries(
+                blockVariants.map(v => [ `variant=${v}`, { model: `oneblock/${v}` } ])
+            )
         }));
-        AsyncSink.setFile("resourcepacks/AsyncSinkLib/assets/minecraft/textures/blocks/oneblock.png", await (await fetch(
-            oneblockTexture
-        )).arrayBuffer());
+
+        // Model and texture for each variant
+        for (const variant of blockVariants) {
+            AsyncSink.setFile(`resourcepacks/AsyncSinkLib/assets/minecraft/models/block/oneblock/${variant}.json`, JSON.stringify({
+                parent: "block/cube_all",
+                textures: {
+                    all: oneblockTextureMap[variant]
+                }
+            }));
+            AsyncSink.setFile(`resourcepacks/AsyncSinkLib/assets/minecraft/models/item/oneblock/${variant}.json`, JSON.stringify({
+                parent: `block/oneblock/${variant}`
+            }));
+        }
     });
 })();

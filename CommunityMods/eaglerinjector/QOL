@@ -1,0 +1,124 @@
+// ==UserScript==
+// @name         QoLPlus Pack for EaglerInjector
+// @version      1.0
+// @description  Adds many QoL features to Eaglercraft
+// @author       god_spud
+// ==/UserScript==
+
+(function() {
+    const gameLoop = () => requestAnimationFrame(gameLoop);
+
+    const keys = {
+        toggleSprint: 'G',
+        toggleSneak: 'H',
+        toggleBrightness: 'B',
+        toggleNoFall: 'N',
+        sortInventory: 'K'
+    };
+
+    let sprintToggled = false;
+    let sneakToggled = false;
+    let bright = false;
+    let noFall = false;
+
+    document.addEventListener('keydown', e => {
+        if (e.key === keys.toggleSprint) sprintToggled = !sprintToggled;
+        if (e.key === keys.toggleSneak) sneakToggled = !sneakToggled;
+        if (e.key === keys.toggleBrightness) {
+            bright = !bright;
+            if (bright) {
+                Game.settings.gamma = 10.0;
+            } else {
+                Game.settings.gamma = 1.0;
+            }
+        }
+        if (e.key === keys.toggleNoFall) noFall = !noFall;
+        if (e.key === keys.sortInventory) sortInventory();
+    });
+
+    function sortInventory() {
+        const inv = Game.player?.inventory?.main;
+        if (!inv) return;
+        inv.sort((a, b) => {
+            if (!a) return 1;
+            if (!b) return -1;
+            return a.itemID - b.itemID;
+        });
+    }
+
+    function autoTool() {
+        if (!Game || !Game.player || !Game.world) return;
+        const lookingAt = Game.crosshairTarget;
+        if (!lookingAt?.blockPos) return;
+
+        const block = Game.world.getBlockAt(lookingAt.blockPos);
+        let bestSlot = -1;
+        let bestStrength = -1;
+
+        for (let i = 0; i < 9; i++) {
+            const stack = Game.player.inventory.hotbar[i];
+            if (stack && stack.getDestroySpeed(block) > bestStrength) {
+                bestStrength = stack.getDestroySpeed(block);
+                bestSlot = i;
+            }
+        }
+
+        if (bestSlot !== -1 && Game.player.inventory.selectedSlot !== bestSlot) {
+            Game.player.inventory.selectedSlot = bestSlot;
+        }
+    }
+
+    function rightClickHarvest() {
+        const target = Game.crosshairTarget;
+        if (target?.blockPos && Game.input.isRightClickPressed()) {
+            const block = Game.world.getBlockAt(target.blockPos);
+            if (block.id === 59 && block.meta === 7) {
+                Game.sendClickBlockPacket(target.blockPos);
+                Game.sendUseItemOnBlockPacket(target.blockPos);
+            }
+        }
+    }
+
+    function renderHudOverlay() {
+        if (!Game || !Game.player) return;
+        const x = Math.floor(Game.player.pos.x);
+        const y = Math.floor(Game.player.pos.y);
+        const z = Math.floor(Game.player.pos.z);
+        const ticks = Game.world?.timeOfDay || 0;
+
+        Game.gui.drawString(`XYZ: ${x} ${y} ${z}`, 5, 5, 0xFFFFFF);
+        Game.gui.drawString(`Ticks: ${ticks}`, 5, 15, 0xAAAAAA);
+    }
+
+    function blockTooltip() {
+        const lookingAt = Game.crosshairTarget;
+        if (!lookingAt?.blockPos) return;
+        const block = Game.world.getBlockAt(lookingAt.blockPos);
+        const name = block?.getDisplayName?.() || `ID ${block.id}`;
+        Game.gui.drawString(`Looking at: ${name}`, 5, Game.gui.height - 10, 0xFFFFFF);
+    }
+
+    function tickQoL() {
+        if (!Game || !Game.player) return;
+
+        if (sprintToggled) Game.player.setSprinting(true);
+        if (sneakToggled) Game.player.setSneaking(true);
+        if (noFall) Game.player.fallDistance = 0;
+
+        autoTool();
+        rightClickHarvest();
+        renderHudOverlay();
+        blockTooltip();
+    }
+
+    function loop() {
+        try {
+            tickQoL();
+        } catch (e) {
+            console.warn('[QoLPlus] error:', e);
+        }
+        requestAnimationFrame(loop);
+    }
+
+    loop();
+})();

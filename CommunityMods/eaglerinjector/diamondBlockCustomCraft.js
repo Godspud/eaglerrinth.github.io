@@ -19,7 +19,7 @@
 
         // Define the crafting grid pattern for the recipe
         var recipePattern = [
-            "DDD",
+            "DD#",
             "DDD",
             "DDD"
         ];
